@@ -15,6 +15,8 @@ Use `overfit pr` to optionally commit pending changes, push the current branch, 
 
 If `.github/pull_request_template.md` or `.github/PULL_REQUEST_TEMPLATE.md` exists, its required headings and checklists are supplied to the PR-generation step.
 
+Commands show dimmed high-level Git and GitHub invocations by default. Use `--quiet` or `-q` to suppress only command previews; AI-call notices, prompts, and loading output remain visible.
+
 Before the first use, run `overfit setup`. Choose OpenAI, xAI, Google AI, Anthropic, or a custom OpenAI-compatible base URL. Let it discover text-capable models when possible, select a model, and enter the API key. macOS stores the key in Keychain; the fallback config file uses mode 0600.
 
 The CLI invokes `git`, `curl`, and `gh` with argument arrays. It does not evaluate generated text as shell code. Confirm the diff before using commands that push or create a pull request.

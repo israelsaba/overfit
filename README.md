@@ -44,6 +44,8 @@ overfit pr -sc
 overfit main
 ```
 
+By default, Overfit displays the high-level Git and GitHub commands it is about to run in dim terminal text. Use the common quiet flags `--quiet` or `-q` to omit only those command previews, for example `overfit -q pr` or `overfit pr --quiet`. AI-call notices, prompts, and loading indicators remain visible.
+
 `overfit commit` stages all pending changes, creates one AI-generated Conventional Commit, and pushes with `git push`.
 
 `overfit main` checks out the local `main` branch and updates it with `git pull --ff-only`. Git refuses the checkout if local changes would be overwritten.

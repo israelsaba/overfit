@@ -44,6 +44,50 @@ typedef struct {
     size_t capacity;
 } Buffer;
 
+static int quiet_mode = 0;
+static int command_index_global = 1;
+static int loading_active = 0;
+static const char *loading_label = "AI provider";
+
+static void print_command(char *const argv[])
+{
+    if (quiet_mode) {
+        return;
+    }
+    fputs("\033[2m$", stdout);
+    for (size_t index = 0; argv[index] != NULL; index++) {
+        fputs(" ", stdout);
+        fputc('\'', stdout);
+        for (const char *cursor = argv[index]; *cursor != '\0'; cursor++) {
+            if (*cursor == '\'') {
+                fputs("'\"'\"'", stdout);
+            } else {
+                fputc(*cursor, stdout);
+            }
+        }
+        fputc('\'', stdout);
+    }
+    fputs("\033[0m\n", stdout);
+}
+
+static void render_loading(size_t frame)
+{
+    if (!loading_active || !isatty(STDOUT_FILENO)) {
+        return;
+    }
+    const char *dots[] = {".", "..", "...", "...."};
+    printf("\r\033[KCalling %s [%s]", loading_label, dots[frame % 4]);
+    fflush(stdout);
+}
+
+static void clear_loading(void)
+{
+    if (loading_active && isatty(STDOUT_FILENO)) {
+        printf("\r\033[K");
+        fflush(stdout);
+    }
+}
+
 static void fail(const char *format, ...)
 {
     va_list args;
@@ -52,6 +96,11 @@ static void fail(const char *format, ...)
     va_end(args);
     fputc('\n', stderr);
     exit(EXIT_FAILURE);
+}
+
+static int is_quiet_flag(const char *value)
+{
+    return strcmp(value, "--quiet") == 0 || strcmp(value, "-q") == 0;
 }
 
 static void buffer_init(Buffer *buffer)
@@ -139,8 +188,24 @@ static int run_process(char *const argv[], Buffer *output)
     close(pipefd[1]);
     buffer_init(output);
     char chunk[4096];
-    ssize_t count;
-    while ((count = read(pipefd[0], chunk, sizeof(chunk))) > 0) {
+    size_t frame = 0;
+    while (1) {
+        struct pollfd descriptor = {.fd = pipefd[0], .events = POLLIN};
+        int ready = poll(&descriptor, 1, loading_active ? 250 : -1);
+        if (ready < 0 && errno == EINTR) {
+            continue;
+        }
+        if (ready == 0) {
+            render_loading(frame++);
+            continue;
+        }
+        if (ready < 0) {
+            break;
+        }
+        ssize_t count = read(pipefd[0], chunk, sizeof(chunk));
+        if (count <= 0) {
+            break;
+        }
         buffer_append(output, chunk, (size_t)count);
     }
     close(pipefd[0]);
@@ -156,6 +221,7 @@ static int run_process(char *const argv[], Buffer *output)
 
 static int run_passthrough(char *const argv[])
 {
+    print_command(argv);
     pid_t pid = fork();
     if (pid < 0) {
         fail("fork: %s", strerror(errno));
@@ -507,7 +573,15 @@ static void setup_config(int argc, char **argv)
     snprintf(config.provider, sizeof(config.provider), "%s", "OpenAI");
     snprintf(config.protocol, sizeof(config.protocol), "%s", "openai");
     snprintf(config.endpoint, sizeof(config.endpoint), "%s", provider_presets[0].base_url);
+    int has_setup_options = 0;
     for (int index = 2; index < argc; index++) {
+        if (index == command_index_global) {
+            continue;
+        }
+        if (is_quiet_flag(argv[index])) {
+            continue;
+        }
+        has_setup_options = 1;
         if (strcmp(argv[index], "--endpoint") == 0 && index + 1 < argc) {
             snprintf(config.endpoint, sizeof(config.endpoint), "%s", argv[++index]);
             snprintf(config.provider, sizeof(config.provider), "%s", "Custom");
@@ -519,7 +593,7 @@ static void setup_config(int argc, char **argv)
             fail("unknown setup option: %s", argv[index]);
         }
     }
-    if (argc == 2) {
+    if (!has_setup_options) {
         select_provider(&config);
     }
     if (config.api_key[0] == '\0') {
@@ -694,6 +768,22 @@ static char *json_value(const char *json, const char *key)
 
 static char *ask_ai(const Config *config, const char *instruction, const char *snapshot)
 {
+    printf("Calling %s with model %s.\n", config->provider, config->model);
+    printf("Prompt:\nSYSTEM:\n%s\nUSER:\n", instruction);
+    const char *template_marker = strstr(snapshot, "\nPR TEMPLATE (reference only): ");
+    if (template_marker == NULL) {
+        printf("%s\n", snapshot);
+    } else {
+        fwrite(snapshot, 1, (size_t)(template_marker - snapshot), stdout);
+        const char *path_end = strchr(template_marker + 1, '\n');
+        if (path_end == NULL) {
+            putchar('\n');
+        } else {
+            fwrite(template_marker + 1, 1, (size_t)(path_end - template_marker - 1), stdout);
+            puts("\n[PR template content loaded from this path]");
+        }
+    }
+    fflush(stdout);
     Buffer request;
     buffer_init(&request);
     buffer_append_text(&request, "{\"model\":");
@@ -727,7 +817,12 @@ static char *ask_ai(const Config *config, const char *instruction, const char *s
     curl[curl_length++] = endpoint;
     curl[curl_length] = NULL;
     Buffer response;
+    loading_label = config->provider;
+    loading_active = 1;
+    render_loading(0);
     int result = run_process(curl, &response);
+    clear_loading();
+    loading_active = 0;
     buffer_free(&request);
     if (result != 0) {
         fail("AI request failed: %s", response.data);
@@ -878,6 +973,12 @@ static void do_pr(int argc, char **argv)
     load_config(&config);
     int skip_commit = 0;
     for (int index = 2; index < argc; index++) {
+        if (index == command_index_global) {
+            continue;
+        }
+        if (is_quiet_flag(argv[index])) {
+            continue;
+        }
         if (strcmp(argv[index], "--skip-commit") == 0 || strcmp(argv[index], "-sc") == 0) {
             skip_commit = 1;
         } else {
@@ -944,22 +1045,36 @@ static void usage(void)
 
 int main(int argc, char **argv)
 {
-    if (argc < 2 || strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0) {
+    int command_index = 1;
+    for (int index = 1; index < argc; index++) {
+        if (is_quiet_flag(argv[index])) {
+            quiet_mode = 1;
+        } else {
+            command_index = index;
+            break;
+        }
+    }
+    command_index_global = command_index;
+    if (argc < 2 || strcmp(argv[command_index], "--help") == 0 || strcmp(argv[command_index], "-h") == 0) {
         usage();
         return argc < 2 ? EXIT_FAILURE : EXIT_SUCCESS;
     }
-    if (strcmp(argv[1], "setup") == 0) {
+    if (strcmp(argv[command_index], "setup") == 0) {
         setup_config(argc, argv);
-    } else if (strcmp(argv[1], "commit") == 0) {
-        if (argc != 2) {
-            fail("commit does not accept options");
+    } else if (strcmp(argv[command_index], "commit") == 0) {
+        for (int index = 1; index < argc; index++) {
+            if (index != command_index && !is_quiet_flag(argv[index])) {
+                fail("commit does not accept options");
+            }
         }
         do_commit(0);
-    } else if (strcmp(argv[1], "pr") == 0) {
+    } else if (strcmp(argv[command_index], "pr") == 0) {
         do_pr(argc, argv);
-    } else if (strcmp(argv[1], "main") == 0) {
-        if (argc != 2) {
-            fail("main does not accept options");
+    } else if (strcmp(argv[command_index], "main") == 0) {
+        for (int index = 1; index < argc; index++) {
+            if (index != command_index && !is_quiet_flag(argv[index])) {
+                fail("main does not accept options");
+            }
         }
         do_main();
     } else {
