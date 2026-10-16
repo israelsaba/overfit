@@ -354,8 +354,13 @@ static int fetch_models(const Config *config, char *models[], size_t max_models)
 {
     char models_url[1024];
     char auth[1200];
-    url_with_suffix(models_url, sizeof(models_url), config->endpoint, "/models");
-    const char *auth_name = strcmp(config->protocol, "anthropic") == 0 ? "x-api-key: " : "Authorization: Bearer ";
+    int google_provider = strcmp(config->provider, "Google AI") == 0;
+    if (google_provider) {
+        snprintf(models_url, sizeof(models_url), "%s", "https://generativelanguage.googleapis.com/v1beta/models");
+    } else {
+        url_with_suffix(models_url, sizeof(models_url), config->endpoint, "/models");
+    }
+    const char *auth_name = google_provider ? "x-goog-api-key: " : strcmp(config->protocol, "anthropic") == 0 ? "x-api-key: " : "Authorization: Bearer ";
     snprintf(auth, sizeof(auth), "%s%s", auth_name, config->api_key);
     char *headers[] = {"curl", "--silent", "--show-error", "--fail-with-body", "--max-time", "30", "-H", auth, NULL};
     char *curl[] = {headers[0], headers[1], headers[2], headers[3], headers[4], headers[5], headers[6], headers[7], NULL, NULL, NULL, NULL};
@@ -373,8 +378,19 @@ static int fetch_models(const Config *config, char *models[], size_t max_models)
     }
     size_t count = 0;
     const char *cursor = response.data;
-    while (count < max_models && (cursor = strstr(cursor, "\"id\"")) != NULL) {
-        cursor = strchr(cursor, ':');
+    while (count < max_models) {
+        const char *id_field = strstr(cursor, "\"id\"");
+        const char *name_field = strstr(cursor, "\"name\"");
+        const char *field = id_field;
+        const char *field_name = "id";
+        if (field == NULL || (name_field != NULL && name_field < field)) {
+            field = name_field;
+            field_name = "name";
+        }
+        if (field == NULL) {
+            break;
+        }
+        cursor = strchr(field + strlen(field_name) + 2, ':');
         if (cursor == NULL) {
             break;
         }
@@ -395,6 +411,9 @@ static int fetch_models(const Config *config, char *models[], size_t max_models)
             char candidate[256];
             memcpy(candidate, cursor, length);
             candidate[length] = '\0';
+            if (strcmp(field_name, "name") == 0 && strncmp(candidate, "models/", 7) == 0) {
+                memmove(candidate, candidate + 7, strlen(candidate + 7) + 1);
+            }
             if (model_is_text(candidate)) {
                 models[count] = strdup(candidate);
                 if (models[count] == NULL) {
@@ -448,10 +467,6 @@ static void select_model(Config *config)
 {
     char *models[64] = {0};
     int model_count = fetch_models(config, models, sizeof(models) / sizeof(models[0]));
-    if (model_count == 0 && config->api_key[0] == '\0') {
-        prompt_api_key(config);
-        model_count = fetch_models(config, models, sizeof(models) / sizeof(models[0]));
-    }
     if (model_count > 0) {
         puts("Available text input/output models:");
         for (int index = 0; index < model_count; index++) {
@@ -507,13 +522,11 @@ static void setup_config(int argc, char **argv)
     if (argc == 2) {
         select_provider(&config);
     }
+    if (config.api_key[0] == '\0') {
+        prompt_api_key(&config);
+    }
     if (config.model[0] == '\0') {
         select_model(&config);
-    }
-    if (config.api_key[0] == '\0') {
-        printf("API key: ");
-        fflush(stdout);
-        read_secret(config.api_key, sizeof(config.api_key));
     }
     int stored_in_keychain = keychain_store(config.api_key);
     char directory[PATH_MAX];

@@ -45,7 +45,7 @@ overfit pr -sc
 
 ## Configuration
 
-`overfit setup` offers presets for OpenAI (`https://api.openai.com/v1`), xAI (`https://api.x.ai/v1`), Google AI (`https://generativelanguage.googleapis.com/v1beta/openai`), and Anthropic (`https://api.anthropic.com/v1`). It also accepts any custom OpenAI-compatible base URL. It attempts to fetch the provider's model list, filters obvious non-text models, and lets you select a model. If discovery is unavailable, enter the model ID manually.
+`overfit setup` offers presets for OpenAI (`https://api.openai.com/v1`), xAI (`https://api.x.ai/v1`), Google AI (`https://generativelanguage.googleapis.com/v1beta/openai`), and Anthropic (`https://api.anthropic.com/v1`). It also accepts any custom OpenAI-compatible base URL. After the provider is selected, enter the API key once so authenticated model discovery can run. It filters obvious non-text models and lets you select a model. If discovery is unavailable, enter the model ID manually.
 
 ```sh
 overfit setup
