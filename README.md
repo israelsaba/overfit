@@ -17,6 +17,10 @@ gh pr create ...
 
 It inspects the repository, asks a configured OpenAI-compatible chat API for a Conventional Commit message or PR metadata, and passes generated values as process arguments. It does not execute generated text as a shell command.
 
+## Terminology
+
+Some command names use common developer shorthand rather than perfectly precise terminology. For example, `main` commonly means the repository's primary branch, and `commit` commonly means the broader stage, commit, and push workflow in casual developer conversation. These names are deliberate choices based on terms that are widely understood when communicating loosely, even among developers. This will remain a recurring Overfit design theme: prefer familiar, memorable language while documenting the exact behavior underneath.
+
 ## Install
 
 Review the source, then install locally on macOS or Linux:
