@@ -408,6 +408,17 @@ static void load_config(Config *config)
     }
 }
 
+static int load_config_if_available(Config *config)
+{
+    char path[PATH_MAX];
+    home_path(path, sizeof(path));
+    if (access(path, R_OK) != 0) {
+        return 0;
+    }
+    load_config(config);
+    return 1;
+}
+
 static void url_with_suffix(char *destination, size_t size, const char *base, const char *suffix)
 {
     size_t base_length = strlen(base);
@@ -1150,12 +1161,20 @@ static void do_pr(int argc, char **argv)
 static void do_main(void)
 {
     require_git_repository();
+    Config config;
+    int can_analyze = load_config_if_available(&config);
     char *checkout[] = {"git", "checkout", "main", NULL};
     if (run_passthrough(checkout) != 0) {
+        if (can_analyze) {
+            analyze_command_failure(&config, "git checkout main");
+        }
         fail("git checkout main failed");
     }
     char *pull[] = {"git", "pull", "--ff-only", NULL};
     if (run_passthrough(pull) != 0) {
+        if (can_analyze) {
+            analyze_command_failure(&config, "git pull --ff-only");
+        }
         fail("git pull --ff-only failed");
     }
 }

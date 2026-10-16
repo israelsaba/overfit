@@ -54,7 +54,7 @@ By default, Overfit displays high-level commands and subprocess output using exp
 
 When `.github/pull_request_template.md` or `.github/PULL_REQUEST_TEMPLATE.md` exists, its first 20,000 bytes are included in the PR-generation context so required sections and checklists can be filled.
 
-When a Git or GitHub command fails during `overfit commit` or `overfit pr`, Overfit captures the command output and sends a bounded diagnostic context to the configured AI. The context includes recent Git history, status and diff information, branch, remotes, working directory, terminal metadata, and the failed command output. AI request, provider, and setup errors are never sent back to the AI for analysis.
+When a Git or GitHub command fails during `overfit commit`, `overfit pr`, or `overfit main`, Overfit captures the command output and sends a bounded diagnostic context to the configured AI when setup is available. The context includes recent Git history, status and diff information, branch, remote names, working directory, terminal metadata, and the failed command output. AI request, provider, and setup errors are never sent back to the AI for analysis.
 
 ## Configuration
 
