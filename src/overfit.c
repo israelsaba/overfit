@@ -920,12 +920,26 @@ static void do_pr(int argc, char **argv)
     }
 }
 
+static void do_main(void)
+{
+    require_git_repository();
+    char *checkout[] = {"git", "checkout", "main", NULL};
+    if (run_passthrough(checkout) != 0) {
+        fail("git checkout main failed");
+    }
+    char *pull[] = {"git", "pull", "--ff-only", NULL};
+    if (run_passthrough(pull) != 0) {
+        fail("git pull --ff-only failed");
+    }
+}
+
 static void usage(void)
 {
     puts("Usage: overfit <setup|commit|pr> [options]");
     puts("  overfit setup [--endpoint URL] [--model MODEL] [--api-key KEY]");
     puts("  overfit commit");
     puts("  overfit pr [--skip-commit|-sc]");
+    puts("  overfit main");
 }
 
 int main(int argc, char **argv)
@@ -943,6 +957,11 @@ int main(int argc, char **argv)
         do_commit(0);
     } else if (strcmp(argv[1], "pr") == 0) {
         do_pr(argc, argv);
+    } else if (strcmp(argv[1], "main") == 0) {
+        if (argc != 2) {
+            fail("main does not accept options");
+        }
+        do_main();
     } else {
         usage();
         return EXIT_FAILURE;

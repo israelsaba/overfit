@@ -37,9 +37,12 @@ overfit commit
 overfit pr
 overfit pr --skip-commit
 overfit pr -sc
+overfit main
 ```
 
 `overfit commit` stages all pending changes, creates one AI-generated Conventional Commit, and pushes with `git push`.
+
+`overfit main` checks out the local `main` branch and updates it with `git pull --ff-only`. Git refuses the checkout if local changes would be overwritten.
 
 `overfit pr` detects pending changes and waits five seconds before committing. Press any key during the countdown to skip the automatic commit; press Enter to run it immediately. You can also use `--skip-commit` / `-sc`. It then pushes the current branch and runs `gh pr create` with AI-generated `--title` and `--body` arguments.
 

@@ -9,6 +9,8 @@ compatibility: Requires a POSIX environment with a C compiler, git, curl, and Gi
 
 Use `overfit commit` for a repository change that should be staged, committed with an AI-generated Conventional Commit message, and pushed.
 
+Use `overfit main` to check out `main` and fast-forward it from its configured remote.
+
 Use `overfit pr` to optionally commit pending changes, push the current branch, and create a GitHub pull request with AI-generated title and body. The command waits five seconds before the automatic commit. Press any key during the countdown to skip it, press Enter to run it immediately, or pass `--skip-commit` or `-sc`.
 
 If `.github/pull_request_template.md` or `.github/PULL_REQUEST_TEMPLATE.md` exists, its required headings and checklists are supplied to the PR-generation step.
