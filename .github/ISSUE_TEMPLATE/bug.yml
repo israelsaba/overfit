@@ -1,0 +1,16 @@
+name: Bug report
+description: Report a reproducible problem with overfit.
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Reproduction and behavior
+      description: Include OS, expected behavior, actual behavior, and a minimal example. Do not include secrets.
+    validations:
+      required: true
