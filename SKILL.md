@@ -13,6 +13,8 @@ Use `overfit main` to check out `main` and fast-forward it from its configured r
 
 Use `overfit pr` to optionally commit pending changes, push the current branch, and create a GitHub pull request with AI-generated title and body. The command waits five seconds before the automatic commit. Press any key during the countdown to skip it, press Enter to run it immediately, or pass `--skip-commit` or `-sc`.
 
+An existing open PR for the current branch is detected before PR-generation AI is called. Overfit pushes updates and reports that PR instead of creating a duplicate or analyzing the expected `already exists` response as an error.
+
 If `.github/pull_request_template.md` or `.github/PULL_REQUEST_TEMPLATE.md` exists, its required headings and checklists are supplied to the PR-generation step.
 
 Commands show explicit gray high-level Git and GitHub invocations by default, while subprocess output uses a slightly lighter gray in interactive terminals. Use `--quiet` or `-q` to suppress only command previews; AI-call notices, prompts, and loading output remain visible.

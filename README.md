@@ -52,6 +52,8 @@ By default, Overfit displays high-level commands and subprocess output using exp
 
 `overfit pr` detects pending changes and waits five seconds before committing. Press any key during the countdown to skip the automatic commit; press Enter to run it immediately. You can also use `--skip-commit` / `-sc`. It then pushes the current branch and runs `gh pr create` with AI-generated `--title` and `--body` arguments.
 
+If an open pull request already exists for the current branch, Overfit detects it before calling the PR-generation AI, pushes any new commit to that branch, and reports the existing PR instead of attempting a duplicate.
+
 When `.github/pull_request_template.md` or `.github/PULL_REQUEST_TEMPLATE.md` exists, its first 20,000 bytes are included in the PR-generation context so required sections and checklists can be filled.
 
 When a Git or GitHub command fails during `overfit commit`, `overfit pr`, or `overfit main`, Overfit captures the command output and sends a bounded diagnostic context to the configured AI when setup is available. The context includes the full available Git history when it fits within a 120,000-byte history section, status and diff information, branch, remote names, working directory, terminal metadata, and the failed command output. AI request, provider, and setup errors are never sent back to the AI for analysis.
