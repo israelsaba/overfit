@@ -22,8 +22,8 @@ It inspects the repository, asks a configured OpenAI-compatible chat API for a C
 Review the source, then install locally on macOS or Linux:
 
 ```sh
-git clone https://github.com/your-account/overfit-cli.git
-cd overfit-cli
+git clone https://github.com/israelsaba/overfit.git
+cd overfit
 ./install.sh
 overfit setup
 ```
