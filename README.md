@@ -43,6 +43,8 @@ overfit pr -sc
 
 `overfit pr` detects pending changes and waits five seconds before committing. Press any key during the countdown to skip the automatic commit, or use `--skip-commit` / `-sc`. It then pushes the current branch and runs `gh pr create` with AI-generated `--title` and `--body` arguments.
 
+When `.github/pull_request_template.md` or `.github/PULL_REQUEST_TEMPLATE.md` exists, its first 20,000 bytes are included in the PR-generation context so required sections and checklists can be filled.
+
 ## Configuration
 
 `overfit setup` offers presets for OpenAI (`https://api.openai.com/v1`), xAI (`https://api.x.ai/v1`), Google AI (`https://generativelanguage.googleapis.com/v1beta/openai`), and Anthropic (`https://api.anthropic.com/v1`). It also accepts any custom OpenAI-compatible base URL. After the provider is selected, enter the API key once so authenticated model discovery can run. It filters obvious non-text models and lets you select a model. If discovery is unavailable, enter the model ID manually.
