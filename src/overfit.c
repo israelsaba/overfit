@@ -836,7 +836,7 @@ static int countdown(void)
     if (tcsetattr(STDIN_FILENO, TCSANOW, &raw_terminal) != 0) {
         fail("could not configure terminal input: %s", strerror(errno));
     }
-    printf("Pending changes. Committing in 5 seconds. Press any key to skip.\n");
+    printf("Pending changes. Committing in 5 seconds. Press any key to skip, or Enter to run now.\n");
     for (int seconds = 5; seconds > 0; seconds--) {
         printf("%d... ", seconds);
         fflush(stdout);
@@ -846,6 +846,10 @@ static int countdown(void)
             char input;
             if (read(STDIN_FILENO, &input, sizeof(input)) > 0) {
                 tcsetattr(STDIN_FILENO, TCSANOW, &original_terminal);
+                if (input == '\n' || input == '\r') {
+                    printf("\nRunning automatic commit now.\n");
+                    return 1;
+                }
                 printf("\nSkipped automatic commit.\n");
                 return 0;
             }

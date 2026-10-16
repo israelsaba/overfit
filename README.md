@@ -41,7 +41,7 @@ overfit pr -sc
 
 `overfit commit` stages all pending changes, creates one AI-generated Conventional Commit, and pushes with `git push`.
 
-`overfit pr` detects pending changes and waits five seconds before committing. Press any key during the countdown to skip the automatic commit, or use `--skip-commit` / `-sc`. It then pushes the current branch and runs `gh pr create` with AI-generated `--title` and `--body` arguments.
+`overfit pr` detects pending changes and waits five seconds before committing. Press any key during the countdown to skip the automatic commit; press Enter to run it immediately. You can also use `--skip-commit` / `-sc`. It then pushes the current branch and runs `gh pr create` with AI-generated `--title` and `--body` arguments.
 
 When `.github/pull_request_template.md` or `.github/PULL_REQUEST_TEMPLATE.md` exists, its first 20,000 bytes are included in the PR-generation context so required sections and checklists can be filled.
 
