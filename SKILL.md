@@ -17,7 +17,7 @@ If `.github/pull_request_template.md` or `.github/PULL_REQUEST_TEMPLATE.md` exis
 
 Commands show explicit gray high-level Git and GitHub invocations by default, while subprocess output uses a slightly lighter gray in interactive terminals. Use `--quiet` or `-q` to suppress only command previews; AI-call notices, prompts, and loading output remain visible.
 
-If a Git or GitHub command fails during `commit`, `pr`, or `main`, Overfit asks the configured provider for a bounded diagnosis when setup is available, using command output, recent Git history, repository state, branch, remote names, working directory, and non-secret terminal metadata. Provider, setup, and AI-request failures are not recursively sent to the provider.
+If a Git or GitHub command fails during `commit`, `pr`, or `main`, Overfit asks the configured provider for a bounded diagnosis when setup is available, using command output, the full available Git history up to a 120,000-byte section limit, repository state, branch, remote names, working directory, and non-secret terminal metadata. Provider, setup, and AI-request failures are not recursively sent to the provider.
 
 Before the first use, run `overfit setup`. Choose OpenAI, xAI, Google AI, Anthropic, or a custom OpenAI-compatible base URL. Let it discover text-capable models when possible, select a model, and enter the API key. macOS stores the key in Keychain; the fallback config file uses mode 0600.
 

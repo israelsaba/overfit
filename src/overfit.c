@@ -917,7 +917,11 @@ static void append_context_command(Buffer *context, const char *label, char *con
     buffer_append_text(context, label);
     buffer_append_text(context, ":\n");
     if (result == 0 && output.length > 0) {
-        buffer_append(context, output.data, output.length);
+        size_t length = output.length > 120000 ? 120000 : output.length;
+        buffer_append(context, output.data, length);
+        if (output.length > length) {
+            buffer_append_text(context, "\n[section truncated at 120000 bytes]\n");
+        }
     } else {
         buffer_append_text(context, "(unavailable)\n");
     }
@@ -928,7 +932,7 @@ static void analyze_command_failure(const Config *config, const char *operation)
 {
     Buffer context;
     collect_repo(&context, 0);
-    char *log[] = {"git", "log", "--oneline", "--decorate", "--all", "-100", NULL};
+    char *log[] = {"git", "log", "--oneline", "--decorate", "--all", NULL};
     char *branch[] = {"git", "branch", "--show-current", NULL};
     char *remote[] = {"git", "remote", NULL};
     append_context_command(&context, "GIT HISTORY", log);
