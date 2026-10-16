@@ -54,7 +54,7 @@ static void print_command(char *const argv[])
     if (quiet_mode) {
         return;
     }
-    fputs("\033[2m$", stdout);
+    fputs("\033[2;36m$", stdout);
     for (size_t index = 0; argv[index] != NULL; index++) {
         fputs(" ", stdout);
         fputc('\'', stdout);
@@ -222,6 +222,11 @@ static int run_process(char *const argv[], Buffer *output)
 static int run_passthrough(char *const argv[])
 {
     print_command(argv);
+    int color_output = !quiet_mode && isatty(STDOUT_FILENO);
+    if (color_output) {
+        fputs("\033[0;32m", stdout);
+        fflush(stdout);
+    }
     pid_t pid = fork();
     if (pid < 0) {
         fail("fork: %s", strerror(errno));
@@ -233,6 +238,10 @@ static int run_passthrough(char *const argv[])
     int status = 0;
     if (waitpid(pid, &status, 0) < 0) {
         fail("waitpid: %s", strerror(errno));
+    }
+    if (color_output) {
+        fputs("\033[0m", stdout);
+        fflush(stdout);
     }
     if (WIFEXITED(status)) {
         return WEXITSTATUS(status);

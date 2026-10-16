@@ -44,7 +44,7 @@ overfit pr -sc
 overfit main
 ```
 
-By default, Overfit displays the high-level Git and GitHub commands it is about to run in dim terminal text. Use the common quiet flags `--quiet` or `-q` to omit only those command previews, for example `overfit -q pr` or `overfit pr --quiet`. AI-call notices, prompts, and loading indicators remain visible.
+By default, Overfit displays high-level commands in dim cyan and colors their subprocess output green. These ANSI colors are used only in interactive terminals. Use the common quiet flags `--quiet` or `-q` to omit only command previews, for example `overfit -q pr` or `overfit pr --quiet`. AI-call notices, prompts, and loading indicators remain visible.
 
 `overfit commit` stages all pending changes, creates one AI-generated Conventional Commit, and pushes with `git push`.
 
