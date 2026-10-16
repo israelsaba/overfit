@@ -667,7 +667,7 @@ static char *ask_ai(const Config *config, const char *instruction, const char *s
         append_json_string(&request, instruction);
         buffer_append_text(&request, "},{\"role\":\"user\",\"content\":");
         append_json_string(&request, snapshot);
-        buffer_append_text(&request, ")}]}\n");
+        buffer_append_text(&request, "}]}\n");
     }
     char auth[1200];
     char endpoint[1024];
