@@ -54,7 +54,7 @@ static void print_command(char *const argv[])
     if (quiet_mode) {
         return;
     }
-    fputs("\033[2;36m$", stdout);
+    fputs("\033[2m$", stdout);
     for (size_t index = 0; argv[index] != NULL; index++) {
         fputs(" ", stdout);
         fputc('\'', stdout);
@@ -224,7 +224,7 @@ static int run_passthrough(char *const argv[])
     print_command(argv);
     int color_output = !quiet_mode && isatty(STDOUT_FILENO);
     if (color_output) {
-        fputs("\033[0;32m", stdout);
+        fputs("\033[1m", stdout);
         fflush(stdout);
     }
     pid_t pid = fork();

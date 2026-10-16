@@ -44,7 +44,7 @@ overfit pr -sc
 overfit main
 ```
 
-By default, Overfit displays high-level commands in dim cyan and colors their subprocess output green. These ANSI colors are used only in interactive terminals. Use the common quiet flags `--quiet` or `-q` to omit only command previews, for example `overfit -q pr` or `overfit pr --quiet`. AI-call notices, prompts, and loading indicators remain visible.
+By default, Overfit displays high-level commands in dim terminal-adaptive gray and subprocess output in bold terminal-adaptive gray. These ANSI styles are used only in interactive terminals and inherit the terminal's foreground color for contrast on dark and light themes. Use the common quiet flags `--quiet` or `-q` to omit only command previews, for example `overfit -q pr` or `overfit pr --quiet`. AI-call notices, prompts, and loading indicators remain visible.
 
 `overfit commit` stages all pending changes, creates one AI-generated Conventional Commit, and pushes with `git push`.
 
