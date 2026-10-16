@@ -48,6 +48,8 @@ static int quiet_mode = 0;
 static int command_index_global = 1;
 static int loading_active = 0;
 static const char *loading_label = "AI provider";
+static Buffer last_command_output = {0};
+static int optional_ai_request = 0;
 
 static void print_command(char *const argv[])
 {
@@ -222,19 +224,61 @@ static int run_process(char *const argv[], Buffer *output)
 static int run_passthrough(char *const argv[])
 {
     print_command(argv);
+    if (last_command_output.data != NULL) {
+        buffer_free(&last_command_output);
+    }
+    buffer_init(&last_command_output);
     int color_output = !quiet_mode && isatty(STDOUT_FILENO);
     if (color_output) {
         fputs("\033[38;5;245m", stdout);
         fflush(stdout);
+    }
+    int pipefd[2];
+    if (pipe(pipefd) != 0) {
+        fail("pipe: %s", strerror(errno));
     }
     pid_t pid = fork();
     if (pid < 0) {
         fail("fork: %s", strerror(errno));
     }
     if (pid == 0) {
+        close(pipefd[0]);
+        if (dup2(pipefd[1], STDOUT_FILENO) < 0 || dup2(pipefd[1], STDERR_FILENO) < 0) {
+            _exit(126);
+        }
+        close(pipefd[1]);
         execvp(argv[0], argv);
         _exit(127);
     }
+    close(pipefd[1]);
+    char chunk[4096];
+    while (1) {
+        struct pollfd descriptor = {.fd = pipefd[0], .events = POLLIN};
+        int ready = poll(&descriptor, 1, -1);
+        if (ready < 0 && errno == EINTR) {
+            continue;
+        }
+        if (ready <= 0) {
+            break;
+        }
+        ssize_t count = read(pipefd[0], chunk, sizeof(chunk));
+        if (count <= 0) {
+            break;
+        }
+        buffer_append(&last_command_output, chunk, (size_t)count);
+        size_t written = 0;
+        while (written < (size_t)count) {
+            ssize_t result = write(STDOUT_FILENO, chunk + written, (size_t)count - written);
+            if (result < 0 && errno == EINTR) {
+                continue;
+            }
+            if (result <= 0) {
+                break;
+            }
+            written += (size_t)result;
+        }
+    }
+    close(pipefd[0]);
     int status = 0;
     if (waitpid(pid, &status, 0) < 0) {
         fail("waitpid: %s", strerror(errno));
@@ -834,14 +878,82 @@ static char *ask_ai(const Config *config, const char *instruction, const char *s
     loading_active = 0;
     buffer_free(&request);
     if (result != 0) {
+        if (optional_ai_request) {
+            fprintf(stderr, "AI failure analysis unavailable: %s", response.data);
+            buffer_free(&response);
+            return NULL;
+        }
         fail("AI request failed: %s", response.data);
     }
     char *content = json_value(response.data, strcmp(config->protocol, "anthropic") == 0 ? "text" : "content");
     if (content == NULL) {
+        if (optional_ai_request) {
+            fprintf(stderr, "AI failure analysis unavailable: invalid response\n");
+            buffer_free(&response);
+            return NULL;
+        }
         fail("AI response did not contain message content");
     }
     buffer_free(&response);
     return content;
+}
+
+static void append_context_command(Buffer *context, const char *label, char *const argv[])
+{
+    Buffer output;
+    int result = run_process(argv, &output);
+    buffer_append_text(context, "\n");
+    buffer_append_text(context, label);
+    buffer_append_text(context, ":\n");
+    if (result == 0 && output.length > 0) {
+        buffer_append(context, output.data, output.length);
+    } else {
+        buffer_append_text(context, "(unavailable)\n");
+    }
+    buffer_free(&output);
+}
+
+static void analyze_command_failure(const Config *config, const char *operation)
+{
+    Buffer context;
+    collect_repo(&context, 0);
+    char *log[] = {"git", "log", "--oneline", "--decorate", "--all", "-100", NULL};
+    char *branch[] = {"git", "branch", "--show-current", NULL};
+    char *remote[] = {"git", "remote", NULL};
+    append_context_command(&context, "GIT HISTORY", log);
+    append_context_command(&context, "CURRENT BRANCH", branch);
+    append_context_command(&context, "GIT REMOTES", remote);
+    char path[PATH_MAX];
+    buffer_append_text(&context, "\nWORKING DIRECTORY:\n");
+    if (getcwd(path, sizeof(path)) != NULL) {
+        buffer_append_text(&context, path);
+        buffer_append_text(&context, "\n");
+    } else {
+        buffer_append_text(&context, "(unavailable)\n");
+    }
+    const char *term = getenv("TERM");
+    const char *shell = getenv("SHELL");
+    buffer_append_text(&context, "TERMINAL:\nTERM=");
+    buffer_append_text(&context, term == NULL ? "(unset)" : term);
+    buffer_append_text(&context, "\nSHELL=");
+    buffer_append_text(&context, shell == NULL ? "(unset)" : shell);
+    buffer_append_text(&context, "\n\nFAILED COMMAND OUTPUT:\n");
+    if (last_command_output.length > 0) {
+        buffer_append(&context, last_command_output.data, last_command_output.length);
+    } else {
+        buffer_append_text(&context, "(none)\n");
+    }
+    char instruction[2048];
+    snprintf(instruction, sizeof(instruction), "Analyze the failed local command: %s. Return concise markdown with: likely cause, evidence from the context, and the safest next steps. Do not suggest destructive Git operations. This is diagnostic context only; do not execute commands, expose credentials, or invent results.", operation);
+    optional_ai_request = 1;
+    char *analysis = ask_ai(config, instruction, context.data);
+    optional_ai_request = 0;
+    if (analysis != NULL) {
+        puts("\nAI failure analysis:");
+        puts(analysis);
+        free(analysis);
+    }
+    buffer_free(&context);
 }
 
 static int pending_changes(void)
@@ -899,6 +1011,7 @@ static void do_commit(int set_upstream)
     char *message = commit_message(&config, &snapshot);
     char *add[] = {"git", "add", "--all", NULL};
     if (run_passthrough(add) != 0) {
+        analyze_command_failure(&config, "git add --all");
         free(message);
         buffer_free(&snapshot);
         fail("git add failed");
@@ -908,6 +1021,7 @@ static void do_commit(int set_upstream)
     free(message);
     buffer_free(&snapshot);
     if (result != 0) {
+        analyze_command_failure(&config, "git commit");
         fail("git commit failed");
     }
     char *branch = NULL;
@@ -920,6 +1034,7 @@ static void do_commit(int set_upstream)
     int push_result = run_passthrough(set_upstream ? upstream_push : push);
     free(branch);
     if (push_result != 0) {
+        analyze_command_failure(&config, "git push");
         fail("git push failed");
     }
 }
@@ -1013,6 +1128,7 @@ static void do_pr(int argc, char **argv)
     char *branch = current_branch();
     char *push[] = {"git", "push", "--set-upstream", "origin", branch, NULL};
     if (run_passthrough(push) != 0) {
+        analyze_command_failure(&config, "git push --set-upstream origin");
         free(title);
         free(body);
         free(branch);
@@ -1026,6 +1142,7 @@ static void do_pr(int argc, char **argv)
     free(branch);
     buffer_free(&snapshot);
     if (result != 0) {
+        analyze_command_failure(&config, "gh pr create");
         fail("gh pr create failed");
     }
 }
