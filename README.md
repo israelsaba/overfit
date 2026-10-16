@@ -28,7 +28,7 @@ cd overfit
 overfit setup
 ```
 
-The installer is local-only and compiles with the system C compiler. Ensure `~/.local/bin` is on `PATH`. `overfit setup` stores the endpoint, model, and API key in `~/.config/overfit/config` with mode 0600.
+The installer is local-only and compiles with the system C compiler. Ensure `~/.local/bin` is on `PATH`.
 
 ## Commands
 
@@ -45,18 +45,18 @@ overfit pr -sc
 
 ## Configuration
 
-The default API endpoint is `https://api.openai.com/v1/chat/completions`, and the default model is `gpt-4o-mini`. Compatible providers can be configured interactively or with flags:
+`overfit setup` offers presets for OpenAI (`https://api.openai.com/v1`), xAI (`https://api.x.ai/v1`), Google AI (`https://generativelanguage.googleapis.com/v1beta/openai`), and Anthropic (`https://api.anthropic.com/v1`). It also accepts any custom OpenAI-compatible base URL. It attempts to fetch the provider's model list, filters obvious non-text models, and lets you select a model. If discovery is unavailable, enter the model ID manually.
 
 ```sh
-overfit setup --endpoint https://example.test/v1/chat/completions --model example-model
+overfit setup
 ```
 
-The configured API must accept an OpenAI-compatible chat-completions request and return assistant content containing the requested JSON object.
+The OpenAI-compatible providers use `/chat/completions` and `/models`. Anthropic uses its native `/messages` API and `/models` endpoint. The API key is requested without terminal echo. On macOS it is stored in Keychain under `overfit-api-key`; on other systems it is stored in `~/.config/overfit/config` with mode 0600 so it survives restarts.
 
 ## Security
 
 - Generated commit and PR text is passed through `execvp` argument vectors, never through a shell.
-- API credentials are written with 0600 permissions.
+- macOS API credentials use Keychain; the fallback config file is written with 0600 permissions.
 - `overfit commit` and `overfit pr` can push remote changes. Review `git diff` before running them.
 - `gh` authentication and repository permissions remain controlled by GitHub CLI.
 - Do not commit the local configuration file or place secrets in this repository.
@@ -81,6 +81,10 @@ The repository's release checks also run compiler warnings, shell checks, secret
 - [Commitizen documentation](https://commitizen-tools.github.io/commitizen/), accessed 2026-10-16. Commitizen defaults to Conventional Commits.
 - [Conventional Commits specification](https://www.conventionalcommits.org/en/v1.0.0/), version 1.0.0.
 - [GitHub CLI `gh pr create` manual](https://cli.github.com/manual/gh_pr_create), accessed 2026-10-16.
+- [OpenAI API compatibility](https://platform.openai.com/docs/api-reference/models), accessed 2026-10-16.
+- [xAI API documentation](https://docs.x.ai/docs), accessed 2026-10-16.
+- [Google Gemini OpenAI compatibility](https://ai.google.dev/gemini-api/docs/openai), accessed 2026-10-16.
+- [Anthropic Messages API](https://docs.anthropic.com/en/api/messages), accessed 2026-10-16.
 
 ## Contributing
 

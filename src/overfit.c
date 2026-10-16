@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -17,10 +18,25 @@
 #include <unistd.h>
 
 typedef struct {
+    char provider[64];
+    char protocol[32];
     char endpoint[1024];
     char model[256];
     char api_key[1024];
 } Config;
+
+typedef struct {
+    const char *name;
+    const char *base_url;
+    const char *protocol;
+} ProviderPreset;
+
+static const ProviderPreset provider_presets[] = {
+    {"OpenAI", "https://api.openai.com/v1", "openai"},
+    {"xAI", "https://api.x.ai/v1", "openai"},
+    {"Google AI", "https://generativelanguage.googleapis.com/v1beta/openai", "openai"},
+    {"Anthropic", "https://api.anthropic.com/v1", "anthropic"}
+};
 
 typedef struct {
     char *data;
@@ -60,6 +76,11 @@ static void buffer_append(Buffer *buffer, const char *data, size_t length)
     memcpy(buffer->data + buffer->length, data, length);
     buffer->length += length;
     buffer->data[buffer->length] = '\0';
+}
+
+static void buffer_append_text(Buffer *buffer, const char *data)
+{
+    buffer_append(buffer, data, strlen(data));
 }
 
 static void buffer_free(Buffer *buffer)
@@ -173,6 +194,59 @@ static int read_line(FILE *stream, char *destination, size_t size)
     return 1;
 }
 
+static int keychain_store(const char *api_key)
+{
+    char *command[] = {"security", "add-generic-password", "-U", "-a", "overfit", "-s", "overfit-api-key", "-w", (char *)api_key, NULL};
+    Buffer output;
+    int result = run_process(command, &output);
+    buffer_free(&output);
+    return result == 0;
+}
+
+static int keychain_load(char *api_key, size_t size)
+{
+    char *command[] = {"security", "find-generic-password", "-a", "overfit", "-s", "overfit-api-key", "-w", NULL};
+    Buffer output;
+    if (run_process(command, &output) != 0) {
+        buffer_free(&output);
+        return 0;
+    }
+    output.data[strcspn(output.data, "\r\n")] = '\0';
+    if (output.data[0] == '\0' || snprintf(api_key, size, "%s", output.data) >= (int)size) {
+        buffer_free(&output);
+        return 0;
+    }
+    buffer_free(&output);
+    return 1;
+}
+
+static void read_secret(char *destination, size_t size)
+{
+    if (!isatty(STDIN_FILENO)) {
+        if (!read_line(stdin, destination, size)) {
+            fail("could not read API key");
+        }
+        return;
+    }
+    struct termios original_terminal;
+    if (tcgetattr(STDIN_FILENO, &original_terminal) != 0) {
+        fail("could not read terminal settings: %s", strerror(errno));
+    }
+    struct termios hidden_terminal = original_terminal;
+    hidden_terminal.c_lflag &= (tcflag_t)~ECHO;
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &hidden_terminal) != 0) {
+        fail("could not hide API key input: %s", strerror(errno));
+    }
+    int result = read_line(stdin, destination, size);
+    tcsetattr(STDIN_FILENO, TCSANOW, &original_terminal);
+    putchar('\n');
+    if (!result) {
+        fail("could not read API key");
+    }
+}
+
+static void normalize_endpoint(Config *config);
+
 static void load_config(Config *config)
 {
     char path[PATH_MAX];
@@ -190,7 +264,11 @@ static void load_config(Config *config)
         }
         *separator = '\0';
         const char *value = separator + 1;
-        if (strcmp(line, "endpoint") == 0) {
+        if (strcmp(line, "provider") == 0) {
+            snprintf(config->provider, sizeof(config->provider), "%s", value);
+        } else if (strcmp(line, "protocol") == 0) {
+            snprintf(config->protocol, sizeof(config->protocol), "%s", value);
+        } else if (strcmp(line, "endpoint") == 0) {
             snprintf(config->endpoint, sizeof(config->endpoint), "%s", value);
         } else if (strcmp(line, "model") == 0) {
             snprintf(config->model, sizeof(config->model), "%s", value);
@@ -199,34 +277,245 @@ static void load_config(Config *config)
         }
     }
     fclose(file);
+    if (config->api_key[0] == '\0') {
+        keychain_load(config->api_key, sizeof(config->api_key));
+    }
+    if (config->protocol[0] == '\0') {
+        snprintf(config->protocol, sizeof(config->protocol), "%s", "openai");
+    }
+    normalize_endpoint(config);
     if (config->endpoint[0] == '\0' || config->model[0] == '\0' || config->api_key[0] == '\0') {
         fail("configuration is incomplete; run `overfit setup`");
     }
 }
 
+static void url_with_suffix(char *destination, size_t size, const char *base, const char *suffix)
+{
+    size_t base_length = strlen(base);
+    while (base_length > 0 && base[base_length - 1] == '/') {
+        base_length--;
+    }
+    if (base_length >= strlen(suffix) && strcmp(base + base_length - strlen(suffix), suffix) == 0) {
+        if (base_length + 1 > size) {
+            fail("provider URL is too long");
+        }
+        snprintf(destination, size, "%.*s", (int)base_length, base);
+        return;
+    }
+    if (snprintf(destination, size, "%.*s%s", (int)base_length, base, suffix) >= (int)size) {
+        fail("provider URL is too long");
+    }
+}
+
+static void normalize_endpoint(Config *config)
+{
+    const char *suffixes[] = {"/chat/completions", "/messages"};
+    for (size_t index = 0; index < sizeof(suffixes) / sizeof(suffixes[0]); index++) {
+        size_t endpoint_length = strlen(config->endpoint);
+        size_t suffix_length = strlen(suffixes[index]);
+        if (endpoint_length > suffix_length && strcmp(config->endpoint + endpoint_length - suffix_length, suffixes[index]) == 0) {
+            config->endpoint[endpoint_length - suffix_length] = '\0';
+            return;
+        }
+    }
+}
+
+static int model_is_text(const char *model)
+{
+    char lowered[256];
+    size_t length = strlen(model);
+    if (length >= sizeof(lowered)) {
+        length = sizeof(lowered) - 1;
+    }
+    for (size_t index = 0; index < length; index++) {
+        lowered[index] = (char)tolower((unsigned char)model[index]);
+    }
+    lowered[length] = '\0';
+    const char *excluded[] = {"embedding", "moderation", "whisper", "tts", "dall-e", "image", "audio", "rerank"};
+    for (size_t index = 0; index < sizeof(excluded) / sizeof(excluded[0]); index++) {
+        if (strstr(lowered, excluded[index]) != NULL) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+static void prompt_api_key(Config *config)
+{
+    if (config->api_key[0] != '\0') {
+        return;
+    }
+    printf("API key is needed to list models. API key: ");
+    fflush(stdout);
+    read_secret(config->api_key, sizeof(config->api_key));
+}
+
+static int fetch_models(const Config *config, char *models[], size_t max_models)
+{
+    char models_url[1024];
+    char auth[1200];
+    url_with_suffix(models_url, sizeof(models_url), config->endpoint, "/models");
+    const char *auth_name = strcmp(config->protocol, "anthropic") == 0 ? "x-api-key: " : "Authorization: Bearer ";
+    snprintf(auth, sizeof(auth), "%s%s", auth_name, config->api_key);
+    char *headers[] = {"curl", "--silent", "--show-error", "--fail-with-body", "--max-time", "30", "-H", auth, NULL};
+    char *curl[] = {headers[0], headers[1], headers[2], headers[3], headers[4], headers[5], headers[6], headers[7], NULL, NULL, NULL, NULL};
+    size_t curl_length = 8;
+    if (strcmp(config->protocol, "anthropic") == 0) {
+        curl[curl_length++] = "-H";
+        curl[curl_length++] = "anthropic-version: 2023-06-01";
+    }
+    curl[curl_length++] = models_url;
+    curl[curl_length] = NULL;
+    Buffer response;
+    if (run_process(curl, &response) != 0) {
+        buffer_free(&response);
+        return 0;
+    }
+    size_t count = 0;
+    const char *cursor = response.data;
+    while (count < max_models && (cursor = strstr(cursor, "\"id\"")) != NULL) {
+        cursor = strchr(cursor, ':');
+        if (cursor == NULL) {
+            break;
+        }
+        cursor++;
+        while (*cursor == ' ' || *cursor == '\t') {
+            cursor++;
+        }
+        if (*cursor != '"') {
+            continue;
+        }
+        cursor++;
+        const char *end = strchr(cursor, '"');
+        if (end == NULL) {
+            break;
+        }
+        size_t length = (size_t)(end - cursor);
+        if (length > 0 && length < 256) {
+            char candidate[256];
+            memcpy(candidate, cursor, length);
+            candidate[length] = '\0';
+            if (model_is_text(candidate)) {
+                models[count] = strdup(candidate);
+                if (models[count] == NULL) {
+                    buffer_free(&response);
+                    fail("out of memory");
+                }
+                count++;
+            }
+        }
+        cursor = end + 1;
+    }
+    buffer_free(&response);
+    return (int)count;
+}
+
+static void select_provider(Config *config)
+{
+    puts("Choose an AI provider:");
+    for (size_t index = 0; index < sizeof(provider_presets) / sizeof(provider_presets[0]); index++) {
+        printf("  %zu. %s (%s)\n", index + 1, provider_presets[index].name, provider_presets[index].base_url);
+    }
+    puts("  5. Custom OpenAI-compatible base URL");
+    char choice[32];
+    printf("Provider [1]: ");
+    fflush(stdout);
+    if (!read_line(stdin, choice, sizeof(choice)) || choice[0] == '\0') {
+        snprintf(choice, sizeof(choice), "1");
+    }
+    char *end = NULL;
+    long selected = strtol(choice, &end, 10);
+    if (end == choice || *end != '\0' || selected < 1 || selected > 5) {
+        fail("invalid provider selection");
+    }
+    if (selected <= 4) {
+        const ProviderPreset *preset = &provider_presets[selected - 1];
+        snprintf(config->provider, sizeof(config->provider), "%s", preset->name);
+        snprintf(config->endpoint, sizeof(config->endpoint), "%s", preset->base_url);
+        snprintf(config->protocol, sizeof(config->protocol), "%s", preset->protocol);
+        return;
+    }
+    printf("Base URL: ");
+    fflush(stdout);
+    if (!read_line(stdin, config->endpoint, sizeof(config->endpoint)) || config->endpoint[0] == '\0') {
+        fail("base URL is required");
+    }
+    snprintf(config->provider, sizeof(config->provider), "%s", "Custom");
+    snprintf(config->protocol, sizeof(config->protocol), "%s", "openai");
+}
+
+static void select_model(Config *config)
+{
+    char *models[64] = {0};
+    int model_count = fetch_models(config, models, sizeof(models) / sizeof(models[0]));
+    if (model_count == 0 && config->api_key[0] == '\0') {
+        prompt_api_key(config);
+        model_count = fetch_models(config, models, sizeof(models) / sizeof(models[0]));
+    }
+    if (model_count > 0) {
+        puts("Available text input/output models:");
+        for (int index = 0; index < model_count; index++) {
+            printf("  %d. %s\n", index + 1, models[index]);
+        }
+        char choice[32];
+        printf("Model number, or enter a model ID: ");
+        fflush(stdout);
+        if (!read_line(stdin, choice, sizeof(choice)) || choice[0] == '\0') {
+            for (int index = 0; index < model_count; index++) {
+                free(models[index]);
+            }
+            fail("model selection is required");
+        }
+        char *end = NULL;
+        long selected = strtol(choice, &end, 10);
+        if (end != choice && *end == '\0' && selected >= 1 && selected <= model_count) {
+            snprintf(config->model, sizeof(config->model), "%s", models[selected - 1]);
+        } else {
+            snprintf(config->model, sizeof(config->model), "%s", choice);
+        }
+    } else {
+        printf("Could not fetch models. Enter model ID: ");
+        fflush(stdout);
+        if (!read_line(stdin, config->model, sizeof(config->model)) || config->model[0] == '\0') {
+            fail("model ID is required");
+        }
+    }
+    for (int index = 0; index < model_count; index++) {
+        free(models[index]);
+    }
+}
+
 static void setup_config(int argc, char **argv)
 {
-    char endpoint[1024] = "https://api.openai.com/v1/chat/completions";
-    char model[256] = "gpt-4o-mini";
-    char api_key[1024] = "";
+    Config config;
+    memset(&config, 0, sizeof(config));
+    snprintf(config.provider, sizeof(config.provider), "%s", "OpenAI");
+    snprintf(config.protocol, sizeof(config.protocol), "%s", "openai");
+    snprintf(config.endpoint, sizeof(config.endpoint), "%s", provider_presets[0].base_url);
     for (int index = 2; index < argc; index++) {
         if (strcmp(argv[index], "--endpoint") == 0 && index + 1 < argc) {
-            snprintf(endpoint, sizeof(endpoint), "%s", argv[++index]);
+            snprintf(config.endpoint, sizeof(config.endpoint), "%s", argv[++index]);
+            snprintf(config.provider, sizeof(config.provider), "%s", "Custom");
         } else if (strcmp(argv[index], "--model") == 0 && index + 1 < argc) {
-            snprintf(model, sizeof(model), "%s", argv[++index]);
+            snprintf(config.model, sizeof(config.model), "%s", argv[++index]);
         } else if (strcmp(argv[index], "--api-key") == 0 && index + 1 < argc) {
-            snprintf(api_key, sizeof(api_key), "%s", argv[++index]);
+            snprintf(config.api_key, sizeof(config.api_key), "%s", argv[++index]);
         } else {
             fail("unknown setup option: %s", argv[index]);
         }
     }
-    if (api_key[0] == '\0') {
-        fprintf(stdout, "API key: ");
-        fflush(stdout);
-        if (!read_line(stdin, api_key, sizeof(api_key))) {
-            fail("could not read API key");
-        }
+    if (argc == 2) {
+        select_provider(&config);
     }
+    if (config.model[0] == '\0') {
+        select_model(&config);
+    }
+    if (config.api_key[0] == '\0') {
+        printf("API key: ");
+        fflush(stdout);
+        read_secret(config.api_key, sizeof(config.api_key));
+    }
+    int stored_in_keychain = keychain_store(config.api_key);
     char directory[PATH_MAX];
     char config_root[PATH_MAX];
     char path[PATH_MAX];
@@ -256,9 +545,12 @@ static void setup_config(int argc, char **argv)
         fclose(file);
         fail("protect %s: %s", path, strerror(errno));
     }
-    fprintf(file, "endpoint=%s\nmodel=%s\napi_key=%s\n", endpoint, model, api_key);
+    fprintf(file, "provider=%s\nprotocol=%s\nendpoint=%s\nmodel=%s\n", config.provider, config.protocol, config.endpoint, config.model);
+    if (!stored_in_keychain) {
+        fprintf(file, "api_key=%s\n", config.api_key);
+    }
     fclose(file);
-    printf("Saved %s with mode 0600.\n", path);
+    printf("Saved %s with mode 0600; API key stored in %s.\n", path, stored_in_keychain ? "the macOS Keychain" : "the protected config file");
 }
 
 static void collect_repo(Buffer *snapshot)
@@ -349,25 +641,43 @@ static char *ask_ai(const Config *config, const char *instruction, const char *s
 {
     Buffer request;
     buffer_init(&request);
-    buffer_append(&request, "{\"model\":", 9);
+    buffer_append_text(&request, "{\"model\":");
     append_json_string(&request, config->model);
-    buffer_append(&request, ",\"temperature\":0.1,\"messages\":[{\"role\":\"system\",\"content\":", 75);
-    append_json_string(&request, instruction);
-    buffer_append(&request, "},{\"role\":\"user\",\"content\":", 35);
-    append_json_string(&request, snapshot);
-    buffer_append(&request, "}]}\n", 4);
+    if (strcmp(config->protocol, "anthropic") == 0) {
+        buffer_append_text(&request, ",\"max_tokens\":1024,\"temperature\":0.1,\"system\":");
+        append_json_string(&request, instruction);
+        buffer_append_text(&request, ",\"messages\":[{\"role\":\"user\",\"content\":");
+        append_json_string(&request, snapshot);
+        buffer_append_text(&request, "}]}\n");
+    } else {
+        buffer_append_text(&request, ",\"temperature\":0.1,\"messages\":[{\"role\":\"system\",\"content\":");
+        append_json_string(&request, instruction);
+        buffer_append_text(&request, "},{\"role\":\"user\",\"content\":");
+        append_json_string(&request, snapshot);
+        buffer_append_text(&request, ")}]}\n");
+    }
     char auth[1200];
     char endpoint[1024];
-    snprintf(auth, sizeof(auth), "Authorization: Bearer %s", config->api_key);
-    snprintf(endpoint, sizeof(endpoint), "%s", config->endpoint);
-    char *curl[] = {"curl", "--silent", "--show-error", "--fail-with-body", "--max-time", "90", "-H", "Content-Type: application/json", "-H", auth, "--data-binary", request.data, endpoint, NULL};
+    const char *auth_prefix = strcmp(config->protocol, "anthropic") == 0 ? "x-api-key: " : "Authorization: Bearer ";
+    snprintf(auth, sizeof(auth), "%s%s", auth_prefix, config->api_key);
+    url_with_suffix(endpoint, sizeof(endpoint), config->endpoint, strcmp(config->protocol, "anthropic") == 0 ? "/messages" : "/chat/completions");
+    char *curl[] = {"curl", "--silent", "--show-error", "--fail-with-body", "--max-time", "90", "-H", "Content-Type: application/json", "-H", auth, NULL, NULL, NULL, NULL, NULL, NULL};
+    size_t curl_length = 10;
+    if (strcmp(config->protocol, "anthropic") == 0) {
+        curl[curl_length++] = "-H";
+        curl[curl_length++] = "anthropic-version: 2023-06-01";
+    }
+    curl[curl_length++] = "--data-binary";
+    curl[curl_length++] = request.data;
+    curl[curl_length++] = endpoint;
+    curl[curl_length] = NULL;
     Buffer response;
     int result = run_process(curl, &response);
     buffer_free(&request);
     if (result != 0) {
         fail("AI request failed: %s", response.data);
     }
-    char *content = json_value(response.data, "content");
+    char *content = json_value(response.data, strcmp(config->protocol, "anthropic") == 0 ? "text" : "content");
     if (content == NULL) {
         fail("AI response did not contain message content");
     }
@@ -505,6 +815,8 @@ static char *current_branch(void)
 static void do_pr(int argc, char **argv)
 {
     require_git_repository();
+    Config config;
+    load_config(&config);
     int skip_commit = 0;
     for (int index = 2; index < argc; index++) {
         if (strcmp(argv[index], "--skip-commit") == 0 || strcmp(argv[index], "-sc") == 0) {
@@ -516,8 +828,6 @@ static void do_pr(int argc, char **argv)
     if (pending_changes() && !skip_commit && countdown()) {
         do_commit(1);
     }
-    Config config;
-    load_config(&config);
     Buffer snapshot;
     collect_repo(&snapshot);
     const char *instruction = "Return JSON exactly as {\"title\":\"short imperative PR title\",\"body\":\"markdown PR body with Summary and Testing sections\"}. Base both fields only on the repository snapshot. Use a concise title and describe actual changes and tests without inventing results.";
