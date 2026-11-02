@@ -1,8 +1,8 @@
 ---
 name: overfit-cli
-description: Uses the overfit C CLI to inspect Git changes, generate Conventional Commit messages and pull request text with a configured AI model, then safely commit, push, and create GitHub pull requests. Use when a user asks to run overfit commit, overfit pr, or replace manual git add/commit/push and gh pr create workflows.
+description: Generates AI commit messages in Conventional Commits format and GitHub pull request titles and bodies with the overfit CLI, then stages, commits, pushes, and runs gh pr create. Use when a user asks to commit and push, write a commit message, open or create a pull request, update main, or run overfit commit, overfit pr, or overfit main.
 license: MIT
-compatibility: Requires a POSIX environment with a C compiler, git, curl, and GitHub CLI (gh) for pull requests.
+compatibility: Requires macOS or Linux with the overfit binary (Homebrew tap israelsaba/overfit-homebrew or a local build), git, curl, and GitHub CLI (gh) for pull requests.
 ---
 
 # Overfit CLI
@@ -16,6 +16,8 @@ Use `overfit pr` to optionally commit pending changes, push the current branch, 
 An existing open PR for the current branch is detected before PR-generation AI is called. Overfit pushes updates and reports that PR instead of creating a duplicate or analyzing the expected `already exists` response as an error.
 
 If `.github/pull_request_template.md` or `.github/PULL_REQUEST_TEMPLATE.md` exists, its required headings and checklists are supplied to the PR-generation step.
+
+The generation context includes recent history, branch and upstream information, repository guidance files, change statistics, tracked diffs, bounded untracked-file diffs, and a base-branch comparison for PRs. PR generation prefers `origin`'s default branch and falls back to `main` or `master`.
 
 Commands show explicit gray high-level Git and GitHub invocations by default, while subprocess output uses a slightly lighter gray in interactive terminals. Use `--quiet` or `-q` to suppress only command previews; AI-call notices, prompts, and loading output remain visible.
 
